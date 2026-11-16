@@ -51,6 +51,7 @@ skate. saves these itself (Settings → Graphics), so they survive restarts.
 | Ambient occlusion | SSAO | |
 | World detail, mesh, effects, post-processing | Low | World detail and mesh add CPU work, and the CPU is what limits speed |
 | Depth of field, motion blur | off | |
+| Camera Y axis (Controls) | inverted | Simon's preference |
 
 Measured standing still at the Hedgemont sign with these settings: 30 fps, a client (CPU) frame of ~16-17 ms out of
 the 33 ms budget, and the GPU ~40% busy at 680 MHz.
