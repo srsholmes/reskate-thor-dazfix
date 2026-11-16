@@ -7,6 +7,10 @@ runs on ARM devices through Proton ARM64 + **FEX** (tested on an AYN Thor runnin
 - **Build:** ReSkate tag `20261114` (2.1.4-4) for skate. Steam build `25414733`, plus this patch.
 - **On x86 PCs:** no change in behaviour (see "Why it's safe on PC").
 
+## Download
+Get `ReSkate-dazguard-20261114.dll` (or the tester zip with install notes) from the **Releases** page:
+https://github.com/srsholmes/reskate-thor-dazfix/releases/tag/v1-dazguard-20261114
+
 ## Contents
 
 | Path | What |
