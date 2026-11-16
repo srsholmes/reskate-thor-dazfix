@@ -4,37 +4,49 @@ Fixes the **"skater falls through the map / disappears and respawns forever"** b
 runs on ARM devices through Proton ARM64 + **FEX** (tested on an AYN Thor running ArmadaOS).
 
 - **Status:** working. With the patched DLL, bailing, respawning and teleporting all work on the Thor (2026-11-15).
-- **Build:** ReSkate tag `20261114` (2.1.4-4) for skate. Steam build `25414733`, plus this patch.
+- **Builds:** ReSkate tags `20261116` (current, recommended) and `20261114`, both for skate. Steam build `25414733`, plus this patch.
 - **On x86 PCs:** no change in behaviour (see "Why it's safe on PC").
 
 ## Download
-Get `ReSkate-dazguard-20261114.dll` (or the tester zip with install notes) from the **Releases** page:
-https://github.com/srsholmes/reskate-thor-dazfix/releases/tag/v1-dazguard-20261114
+Don't build anything: grab the ready-made DLL from **[Releases](https://github.com/srsholmes/reskate-thor-dazfix/releases)**.
+
+- **Latest ReSkate (20261116):** [v2-dazguard-20261116](https://github.com/srsholmes/reskate-thor-dazfix/releases/tag/v2-dazguard-20261116)
+  (recommended; this is what the launcher installs today)
+- **Older ReSkate (20261114 / 2.1.4-4 launcher):** [v1-dazguard-20261114](https://github.com/srsholmes/reskate-thor-dazfix/releases/tag/v1-dazguard-20261114)
+
+Each release has the DLL and a zip containing `ReSkate.dll`, `README.txt` with install steps, `SHA256.txt` and the
+source patch. Install instructions are in the release notes and below.
 
 ## Contents
 
 | Path | What |
 |---|---|
-| `release/` (GitHub Release `v1-dazguard-20261114`) | `ReSkate-dazguard-20261114.dll`, the patched ReSkate runtime, plus the tester zip |
-| `patch/0001-physics-daz-guard.patch` | Source of the fix, against ReSkate tag `20261114` |
+| [Releases](https://github.com/srsholmes/reskate-thor-dazfix/releases) | The patched `ReSkate.dll` builds and tester zips (not in the git tree) |
+| `patch/0001-physics-daz-guard.patch` | Source of the fix; applies cleanly to ReSkate tags `20261114` and `20261116` |
 | `docs/investigation.md` | Full write-up: symptom, causal chain, root cause in FEX/Wine, what was ruled out |
 | `docs/thor-setup.md` | The Thor launch setup (speed settings) that goes with the fix |
 | `docs/daz-guard-sites.txt` | The 61 patched instructions in Skate.exe |
 | `tools/daz-repro/` | Small x64 test of MXCSR DAZ/FTZ behaviour (Windows reference output included) |
 
-## Install (tester)
+## Install
 
-1. Close skate. and the ReSkate launcher.
-2. In your ReSkate folder (the one with `ReSkate.dll`), rename `ReSkate.dll` to `ReSkate.dll.stock`.
-3. Copy `ReSkate-dazguard-20261114.dll` in and rename it to `ReSkate.dll`.
-4. Launch as normal (with the launcher's `--no-update`, or it may replace the DLL with the stock one).
-5. Check `logs/ReSkate.log` for: `Physics DAZ guard: 61 of 61 solver zero-guards treat denormals as zero.`
+1. Download the zip for your ReSkate version from [Releases](https://github.com/srsholmes/reskate-thor-dazfix/releases).
+2. Close skate. and the ReSkate launcher.
+3. In your ReSkate folder (the one with `ReSkateLauncher.exe` and `ReSkate.dll`), rename `ReSkate.dll` to
+   `ReSkate.dll.original`.
+4. Copy the `ReSkate.dll` from the zip into that folder.
+5. Stop the launcher replacing it: turn **auto-update off** in the launcher settings, and/or add `--no-update` to the
+   Steam launch options. Skip any update prompt.
+6. Play. Optional check: `logs/ReSkate.log` should contain
+   `Physics DAZ guard: 61 of 61 solver zero-guards treat denormals as zero.`
 
-**Undo:** delete `ReSkate.dll`, then rename `ReSkate.dll.stock` back. Set `RESKATE_DAZ_GUARD=0` to disable the guard
-without swapping files.
+**Undo:** delete `ReSkate.dll` and rename `ReSkate.dll.original` back. You can also set `RESKATE_DAZ_GUARD=0` to
+switch the guard off without swapping files.
 
-**Requirements:** ReSkate 2.1.4-4 (`20261114`) and skate. build 25414733. On any other build the byte checks fail and
-nothing is patched (it logs a warning and the game runs as stock).
+**Requirements:** skate. Steam build 25414733 with the matching ReSkate release. If the game code doesn't match,
+the byte checks fail and nothing is patched: it logs a warning and the game runs as stock.
+
+**If bails never happen at all:** check that ReSkate's **No Bail** cheat is off (`nobail 0` in the console).
 
 ## What was wrong (short version)
 
@@ -82,5 +94,5 @@ to this bug. See `docs/thor-setup.md` for the settings that give the best speed 
 Performance profile).
 
 ## Licence
-GPL-3.0 (see `LICENSE`), the same as ReSkate. ReSkate is GPL-3.0. The patched DLL is built from upstream ReSkate tag `20261114` plus `patch/0001-physics-daz-guard.patch`
+GPL-3.0 (see `LICENSE`), the same as ReSkate. ReSkate is GPL-3.0. The patched DLLs are built from upstream ReSkate tags `20261114`/`20261116` plus `patch/0001-physics-daz-guard.patch`
 (the complete source of the change). Upstream: https://github.com/Dingo-Shenanigans/ReSkate

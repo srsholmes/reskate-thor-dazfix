@@ -20,7 +20,7 @@ cost speed.
 
 ## Files in the ReSkate folder
 - Patched vkd3d `d3d12.dll`/`d3d12core.dll`, Proton's x64 DXVK `dxgi.dll`.
-- `ReSkate.dll` = `ReSkate-dazguard-20261114.dll` (stock kept as `ReSkate.dll.stock-2.1.4-4`).
+- `ReSkate.dll` = `ReSkate-dazguard-20261116.dll` with the 20261116 launcher (earlier: the 20261114 build on the 2.1.4-4 launcher).
 
 ## Launch option
 ```
@@ -36,7 +36,7 @@ Performance power profile, all graphics Low, 30 fps cap, sim rate default 60 (no
 - Debugging sessions have left Balanced power and slow FEX configs behind. Re-check after any test session.
 
 ## 2026-11-16 update
-- Thor on ReSkate **20261116** + dazguard rebuilt for that tag (`f253581c…`); `DAZ guard: 61 of 61`, no respawn loop.
+- Thor on ReSkate **20261116** + dazguard rebuilt for that tag (SHA `f253581c…`, release v2); `DAZ guard: 61 of 61`, no respawn loop.
 - `--no-gui` removed (launcher shows); `--no-update` kept and launcher auto-update off. Skip update prompts until the
   patch is rebuilt for the new tag (the patch applied cleanly to 20261116).
 - Debug leftovers to check after test sessions: ReSkate `nobail` (was left at 1 → flatground tricks never bailed),
