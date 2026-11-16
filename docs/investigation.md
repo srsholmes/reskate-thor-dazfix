@@ -66,7 +66,7 @@ with DAZ on, and fixes the loop under FEX.
 
 ## Method
 The bug was located step by step:
-1. Diagnostic ReSkate builds (see `diagnostics/`) logged the respawn caller stacks, the TeleportManager state, the
+1. Diagnostic ReSkate builds logged the respawn caller stacks, the TeleportManager state, the
    kill-check inputs, the physics pose and the solver inputs.
 2. Hardware write watchpoints on Windows identified the writers of the body state.
 3. Comparing Windows and FEX runs value by value narrowed it down to the solver's zero-guards.
