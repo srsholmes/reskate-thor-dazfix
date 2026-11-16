@@ -17,7 +17,6 @@ runs on ARM devices through Proton ARM64 + **FEX** (tested on an AYN Thor runnin
 | `docs/thor-setup.md` | The Thor launch setup (speed settings) that goes with the fix |
 | `docs/daz-guard-sites.txt` | The 61 patched instructions in Skate.exe |
 | `tools/daz-repro/` | Small x64 test of MXCSR DAZ/FTZ behaviour (Windows reference output included) |
-| `diagnostics/` | Diagnostic ReSkate patches (logging hooks, all against tag `20261114`) and the Lua trace plugin used during the hunt |
 
 ## Install (tester)
 
