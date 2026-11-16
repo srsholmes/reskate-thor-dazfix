@@ -1,0 +1,110 @@
+From 3635dec73bdd37e0fa7cd4a729d3eb88d583bff1 Mon Sep 17 00:00:00 2001
+From: ReSkate DAZ guard investigation <noreply@example.invalid>
+Date: Sun, 15 Nov 2026 12:06:08 +0000
+Subject: [PATCH 2/2] diag v2: log which request handler type adds respawn
+ requests
+
+---
+ Extension/Skater/skater_observer.cpp | 79 ++++++++++++++++++++++++++++
+ 1 file changed, 79 insertions(+)
+
+diff --git a/Extension/Skater/skater_observer.cpp b/Extension/Skater/skater_observer.cpp
+index 74472a1..13df658 100644
+--- a/Extension/Skater/skater_observer.cpp
++++ b/Extension/Skater/skater_observer.cpp
+@@ -117,6 +117,73 @@ void bind_hook(std::uintptr_t player, std::uintptr_t entity) {
+         "Player binding {} returned after {}ms (player=0x{:x}, entity=0x{:x}).", id, elapsed, player, entity);
+     SetLastError(native_error);
+ }
++
++// Diagnostic (respawn-callers v2): the per-tick request pass at Skate.exe+0x2b62410 (obj in rcx)
++// asks each handler in [obj+30h..38h) (16-byte entries, handler at +8) through vtbl[1] with
++// r8 -> {.., .., array*} at +10h; the request count is a u32 at array + 0x88. Wrap vtbl[1] of each
++// handler type seen and log which type adds requests.
++using HandlerFn = std::uintptr_t (*)(std::uintptr_t, std::uintptr_t, std::uintptr_t, std::uintptr_t);
++struct Wrapped { std::uintptr_t vtable; HandlerFn original; std::uint64_t adds; };
++std::array<Wrapped, 64> wrapped{};
++std::atomic<int> wrapped_count{};
++using RequestPass = void (*)(std::uintptr_t, std::uintptr_t, std::uintptr_t, std::uintptr_t);
++RequestPass original_pass{};
++thread_local bool in_pass{};
++std::string rva(std::uintptr_t a) {
++    const auto image = observer().base;
++    char text[40]{};
++    if (a >= image && a - image < 0x10000000) sprintf_s(text, "Skate.exe+0x%llx", static_cast<unsigned long long>(a - image));
++    else sprintf_s(text, "0x%llx", static_cast<unsigned long long>(a));
++    return text;
++}
++std::uintptr_t handler_wrapper(std::uintptr_t self, std::uintptr_t rdx, std::uintptr_t r8, std::uintptr_t r9) {
++    const auto vtable = *reinterpret_cast<std::uintptr_t*>(self);
++    Wrapped* w{};
++    for (int i = 0, n = wrapped_count.load(); i < n; ++i) if (wrapped[i].vtable == vtable) { w = &wrapped[i]; break; }
++    if (!w) return 0; // cannot happen: only wrapped vtables point here
++    std::uint32_t before{}, after{};
++    std::uintptr_t array{};
++    const bool readable = in_pass && r8 && (array = *reinterpret_cast<std::uintptr_t*>(r8 + 0x10)) != 0;
++    if (readable) before = *reinterpret_cast<std::uint32_t*>(array + 0x88);
++    const auto result = w->original(self, rdx, r8, r9);
++    if (readable) after = *reinterpret_cast<std::uint32_t*>(array + 0x88);
++    if (after > before) {
++        const auto n = ++w->adds;
++        if (n <= 5 || n % 120 == 0)
++            logging::log(logging::Level::warning, logging::Channel::skater,
++                "REQUESTER vtable={} handler_fn={} self=0x{:x} added {} (count {}->{}), total adds {}",
++                rva(vtable), rva(reinterpret_cast<std::uintptr_t>(w->original)), self, after - before, before, after, n);
++    }
++    return result;
++}
++void wrap_vtable(std::uintptr_t vtable) {
++    for (int i = 0, n = wrapped_count.load(); i < n; ++i) if (wrapped[i].vtable == vtable) return;
++    const int index = wrapped_count.load();
++    if (index >= static_cast<int>(wrapped.size())) return;
++    auto* slot = reinterpret_cast<std::uintptr_t*>(vtable + 8);
++    wrapped[index] = {vtable, reinterpret_cast<HandlerFn>(*slot), 0};
++    wrapped_count.store(index + 1);
++    DWORD old{};
++    if (!VirtualProtect(slot, sizeof(*slot), PAGE_READWRITE, &old)) { wrapped_count.store(index); return; }
++    *slot = reinterpret_cast<std::uintptr_t>(&handler_wrapper);
++    VirtualProtect(slot, sizeof(*slot), old, &old);
++    logging::log(logging::Level::warning, logging::Channel::skater, "REQUESTER wrapped handler type {} (vtbl[1] {})",
++        rva(vtable), rva(reinterpret_cast<std::uintptr_t>(wrapped[index].original)));
++}
++void request_pass_hook(std::uintptr_t obj, std::uintptr_t rdx, std::uintptr_t r8, std::uintptr_t r9) {
++    // Single-threaded per pass; wrap new handler types before the pass asks them.
++    try {
++        auto it = *reinterpret_cast<std::uintptr_t*>(obj + 0x30);
++        const auto end = *reinterpret_cast<std::uintptr_t*>(obj + 0x38);
++        for (int guard = 0; it && it < end && guard < 256; it += 0x10, ++guard) {
++            const auto handler = *reinterpret_cast<std::uintptr_t*>(it + 8);
++            if (handler) wrap_vtable(*reinterpret_cast<std::uintptr_t*>(handler));
++        }
++    } catch (...) {}
++    in_pass = true;
++    original_pass(obj, rdx, r8, r9);
++    in_pass = false;
++}
+ struct Hook { std::uintptr_t rva; void* detour; void* original{}; std::array<unsigned char, 24> fingerprint; };
+ bool fingerprint(std::uintptr_t address, const std::array<unsigned char, 24>& expected) noexcept {
+     std::array<unsigned char, 24> actual{};
+@@ -166,6 +233,18 @@ bool start_skater_observer(std::uintptr_t base) noexcept {
+             return false;
+         }
+         o.active.store(true);
++        {
++            void* target = reinterpret_cast<void*>(base + 0x2b62410);
++            const std::array<unsigned char, 8> expect{0x4c,0x8b,0xdc,0x55,0x53,0x56,0x49,0x8d};
++            std::array<unsigned char, 8> got{};
++            SIZE_T read{};
++            if (ReadProcessMemory(GetCurrentProcess(), target, got.data(), got.size(), &read) && got == expect &&
++                hook_prepare(target, reinterpret_cast<void*>(&request_pass_hook), reinterpret_cast<void**>(&original_pass)) == HookOk &&
++                hook_enable(target) == HookOk)
++                logging::write(logging::Level::warning, logging::Channel::skater, "REQUESTER diag hook on Skate.exe+0x2b62410 enabled.");
++            else
++                logging::write(logging::Level::warning, logging::Channel::skater, "REQUESTER diag hook NOT installed (bytes differ or hook failed).");
++        }
+         logging::write(logging::Level::info, logging::Channel::player,
+             "Native player lifecycle logging enabled: skater component factory, creation and player binding.");
+         return true;
+-- 
+2.56.0
+

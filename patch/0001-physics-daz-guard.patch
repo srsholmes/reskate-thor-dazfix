@@ -1,0 +1,256 @@
+diff --git a/Engine/Game/Build/20260929/physics_daz.h b/Engine/Game/Build/20260929/physics_daz.h
+new file mode 100644
+index 0000000..67e575a
+--- /dev/null
++++ b/Engine/Game/Build/20260929/physics_daz.h
+@@ -0,0 +1,84 @@
++#pragma once
++#include <cstdint>
++
++// The physics solvers' "zero guards" (Extension/World/physics_daz_guard.cpp).
++//
++// Throughout the constraint and contact solvers (0x25d0000 .. 0x2700000) a length or mass is turned into
++// its inverse with a guard for zero:
++//     inv  = sqrt(1 / x)  (or 1 / x)        vdivps / vsqrtps / vrsqrtps
++//     mask = 0 < x                          vcmpltps mask, ZERO, x   (ZERO from vxorps, eps = 0)
++//     inv &= mask                           vandps
++// The game runs with MXCSR FTZ and DAZ on (_controlfp_s(0x0108001f, 0x0308031f) on each worker thread, and the
++// job dispatcher's vldmxcsr at 0x138a79f / 0x138abe3). With DAZ a denormal x compares as 0, so the mask clears the
++// infinite 1/x. An x86 emulator that keeps MXCSR at 0x1f80 (FEX on ARM64, 2026-11-15) lets a denormal x pass:
++// 1/x overflows to +inf, inf*0 gives NaN, and the body's whole state is NaN after one step (the skater thrown out
++// of the world and respawned forever on the AYN Thor). Each guard listed here is the 'vcmpltps dst, zero, x'
++// (VEX, register form, predicate 1) found by disassembling the range: zero set by vxorps with no write in between,
++// a div/sqrt/rcp within 15 instructions and a vandps of dst within 6. 61 sites; the four at 0x26eb840 (the
++// solver iteration that writes a body's velocities) are the ones the respawn loop was traced to.
++namespace dingosdk::game::build::v20260929::physics_daz {
++struct Guard { std::uint32_t rva; std::uint8_t size; std::uint8_t bytes[6]; };
++inline constexpr Guard guards[]{
++    {0x26103c0, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x2612f14, 5, {0xc5,0xf0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm1,xmm3
++    {0x2615bb5, 5, {0xc5,0xf0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm1,xmm3
++    {0x26302e3, 5, {0xc5,0xf0,0xc2,0xd2,0x01}}, // vcmpltps xmm2,xmm1,xmm2
++    {0x26305ec, 5, {0xc5,0xf8,0xc2,0xd2,0x01}}, // vcmpltps xmm2,xmm0,xmm2
++    {0x2630617, 5, {0xc5,0xf8,0xc2,0xd2,0x01}}, // vcmpltps xmm2,xmm0,xmm2
++    {0x263092a, 5, {0xc5,0xf0,0xc2,0xd4,0x01}}, // vcmpltps xmm2,xmm1,xmm4
++    {0x2630992, 5, {0xc5,0xf0,0xc2,0xd4,0x01}}, // vcmpltps xmm2,xmm1,xmm4
++    {0x2630a72, 5, {0xc5,0xf8,0xc2,0xd4,0x01}}, // vcmpltps xmm2,xmm0,xmm4
++    {0x2631005, 5, {0xc5,0xf0,0xc2,0xd5,0x01}}, // vcmpltps xmm2,xmm1,xmm5
++    {0x263110a, 5, {0xc5,0xf8,0xc2,0xd4,0x01}}, // vcmpltps xmm2,xmm0,xmm4
++    {0x2631387, 5, {0xc5,0xf0,0xc2,0xd0,0x01}}, // vcmpltps xmm2,xmm1,xmm0
++    {0x2631406, 5, {0xc5,0xf0,0xc2,0xd0,0x01}}, // vcmpltps xmm2,xmm1,xmm0
++    {0x2632166, 5, {0xc5,0xf8,0xc2,0xc3,0x01}}, // vcmpltps xmm0,xmm0,xmm3
++    {0x26336cd, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x2638eaa, 5, {0xc5,0xd0,0xc2,0xcc,0x01}}, // vcmpltps xmm1,xmm5,xmm4
++    {0x2638eb3, 5, {0xc5,0xd0,0xc2,0xcf,0x01}}, // vcmpltps xmm1,xmm5,xmm7
++    {0x26392cc, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x2639678, 5, {0xc5,0x80,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm15,xmm3
++    {0x2639ca8, 5, {0xc5,0xd0,0xc2,0xcc,0x01}}, // vcmpltps xmm1,xmm5,xmm4
++    {0x2639cb1, 5, {0xc5,0xd0,0xc2,0xcf,0x01}}, // vcmpltps xmm1,xmm5,xmm7
++    {0x263bb94, 5, {0xc5,0xf0,0xc2,0xcd,0x01}}, // vcmpltps xmm1,xmm1,xmm5
++    {0x2648420, 5, {0xc5,0xd0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm5,xmm3
++    {0x2648ff4, 5, {0xc5,0x80,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm15,xmm3
++    {0x264aa87, 5, {0xc5,0x80,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm15,xmm3
++    {0x264b723, 5, {0xc5,0xd0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm5,xmm3
++    {0x2652b6d, 5, {0xc5,0xd0,0xc2,0xcc,0x01}}, // vcmpltps xmm1,xmm5,xmm4
++    {0x2652b76, 5, {0xc5,0xd0,0xc2,0xcf,0x01}}, // vcmpltps xmm1,xmm5,xmm7
++    {0x2652f9b, 5, {0xc5,0xe0,0xc2,0xc9,0x01}}, // vcmpltps xmm1,xmm3,xmm1
++    {0x26532be, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x266426c, 5, {0xc5,0x88,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm14,xmm3
++    {0x26e7430, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x26e7749, 5, {0xc5,0xb8,0xc2,0xc3,0x01}}, // vcmpltps xmm0,xmm8,xmm3
++    {0x26e7768, 5, {0xc5,0xb8,0xc2,0xc3,0x01}}, // vcmpltps xmm0,xmm8,xmm3
++    {0x26e7a8d, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x26e7af3, 5, {0xc5,0xd8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm4,xmm3
++    {0x26e7bc9, 5, {0xc5,0xf8,0xc2,0xc4,0x01}}, // vcmpltps xmm0,xmm0,xmm4
++    {0x26e7cd7, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x26e8189, 5, {0xc5,0xc0,0xc2,0xcd,0x01}}, // vcmpltps xmm1,xmm7,xmm5
++    {0x26e828f, 5, {0xc5,0xf8,0xc2,0xc3,0x01}}, // vcmpltps xmm0,xmm0,xmm3
++    {0x26e853b, 5, {0xc5,0xf0,0xc2,0xd0,0x01}}, // vcmpltps xmm2,xmm1,xmm0
++    {0x26e97a5, 5, {0xc5,0xf8,0xc2,0xc3,0x01}}, // vcmpltps xmm0,xmm0,xmm3
++    {0x26e9a98, 5, {0xc5,0xf8,0xc2,0xc3,0x01}}, // vcmpltps xmm0,xmm0,xmm3
++    {0x26eaf25, 5, {0xc5,0xf8,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm0,xmm3
++    {0x26ebb24, 5, {0xc5,0xd0,0xc2,0xcc,0x01}}, // vcmpltps xmm1,xmm5,xmm4
++    {0x26ebb56, 5, {0xc5,0xd0,0xc2,0xcf,0x01}}, // vcmpltps xmm1,xmm5,xmm7
++    {0x26ebf4e, 5, {0xc5,0xb0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm9,xmm3
++    {0x26ec31a, 5, {0xc5,0xb0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm9,xmm3
++    {0x26ee5d1, 5, {0xc5,0x80,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm15,xmm3
++    {0x26ee720, 5, {0xc5,0x80,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm15,xmm3
++    {0x26ee976, 5, {0xc5,0xb0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm9,xmm3
++    {0x26eea8d, 5, {0xc5,0xb0,0xc2,0xcb,0x01}}, // vcmpltps xmm1,xmm9,xmm3
++    {0x26eede0, 5, {0xc5,0xf0,0xc2,0xcc,0x01}}, // vcmpltps xmm1,xmm1,xmm4
++    {0x26ef1ab, 5, {0xc5,0xe0,0xc2,0xce,0x01}}, // vcmpltps xmm1,xmm3,xmm6
++    {0x26ef1b8, 5, {0xc5,0xe0,0xc2,0xcc,0x01}}, // vcmpltps xmm1,xmm3,xmm4
++    {0x26f21a2, 5, {0xc5,0xd8,0xc2,0xd2,0x01}}, // vcmpltps xmm2,xmm4,xmm2
++    {0x26f4c21, 5, {0xc5,0xe8,0xc2,0xdb,0x01}}, // vcmpltps xmm3,xmm2,xmm3
++    {0x26f7ac1, 5, {0xc5,0xa8,0xc2,0xc9,0x01}}, // vcmpltps xmm1,xmm10,xmm1
++    {0x26f9f17, 5, {0xc5,0xe0,0xc2,0xcd,0x01}}, // vcmpltps xmm1,xmm3,xmm5
++    {0x26f9f28, 5, {0xc5,0xe0,0xc2,0xcf,0x01}}, // vcmpltps xmm1,xmm3,xmm7
++    {0x26fd65e, 5, {0xc5,0xd0,0xc2,0xf7,0x01}}, // vcmpltps xmm6,xmm5,xmm7
++};
++}
+\ No newline at end of file
+diff --git a/Extension/World/physics_daz_guard.cpp b/Extension/World/physics_daz_guard.cpp
+new file mode 100644
+index 0000000..fb56fc9
+--- /dev/null
++++ b/Extension/World/physics_daz_guard.cpp
+@@ -0,0 +1,103 @@
++#include "physics_daz_guard.h"
++#include "Engine/Core/Hooks/patches.h"
++#include "Engine/Core/Log/logging.h"
++#include "Engine/Core/Platform/memory.h"
++#include "Engine/Game/Build/addresses.h"
++#include "Engine/Game/Build/20260929/physics_daz.h"
++#include <Windows.h>
++#include <array>
++#include <atomic>
++#include <cstring>
++#include <span>
++
++namespace dingosdk::physics_daz_guard {
++namespace {
++namespace pd = addr::physics_daz;
++std::atomic<bool> installed{};
++std::atomic<std::uint32_t> count{};
++constexpr float flt_min = 1.17549435e-38f;   // the smallest normal float: x >= it  <=>  x > 0 with DAZ
++constexpr std::size_t stub_size = 16;
++
++struct Operands { int dst, x; };
++// 'vcmpltps dst, zero, x' (predicate 1, register form) in its 2- or 3-byte VEX encoding.
++bool decode(const pd::Guard& g, Operands& o) noexcept {
++    const auto* b = g.bytes;
++    if (g.size == 5 && b[0] == 0xC5 && b[2] == 0xC2 && (b[3] & 0xC0) == 0xC0 && b[4] == 0x01 && (b[1] & 7) == 0) {
++        o.dst = ((b[3] >> 3) & 7) | (((~b[1] >> 7) & 1) << 3);
++        o.x = b[3] & 7;
++        return true;
++    }
++    if (g.size == 6 && b[0] == 0xC4 && (b[1] & 0x1F) == 1 && b[3] == 0xC2 && (b[4] & 0xC0) == 0xC0 && b[5] == 0x01 && (b[2] & 7) == 0) {
++        o.dst = ((b[4] >> 3) & 7) | (((~b[1] >> 7) & 1) << 3);
++        o.x = (b[4] & 7) | (((~b[1] >> 5) & 1) << 3);
++        return true;
++    }
++    return false;
++}
++// vcmpps xmm<dst>, xmm<x>, [rip + floor], 1Dh (GE_OQ) ; jmp back
++void write_stub(std::uint8_t* s, const Operands& o, const float* floor, std::uintptr_t back) noexcept {
++    s[0] = 0xC4;
++    s[1] = static_cast<std::uint8_t>((o.dst < 8 ? 0x80 : 0) | 0x40 | 0x20 | 0x01);
++    s[2] = static_cast<std::uint8_t>(((~o.x) & 0xF) << 3);
++    s[3] = 0xC2;
++    s[4] = static_cast<std::uint8_t>(((o.dst & 7) << 3) | 0x05);
++    const auto disp = static_cast<std::int32_t>(reinterpret_cast<std::intptr_t>(floor) - reinterpret_cast<std::intptr_t>(s + 10));
++    std::memcpy(s + 5, &disp, 4);
++    s[9] = 0x1D;
++    s[10] = 0xE9;
++    const auto rel = static_cast<std::int32_t>(static_cast<std::intptr_t>(back) - reinterpret_cast<std::intptr_t>(s + 15));
++    std::memcpy(s + 11, &rel, 4);
++    s[15] = 0xCC;
++}
++} // namespace
++
++bool install(std::uintptr_t base) noexcept {
++    if (installed.exchange(true)) return count.load() != 0;
++    if (!base) return false;
++    char setting[8]{};
++    if (GetEnvironmentVariableA("RESKATE_DAZ_GUARD", setting, sizeof(setting)) && setting[0] == '0') {
++        logging::log(logging::Level::info, logging::Channel::runtime, "Physics DAZ guard: off (RESKATE_DAZ_GUARD=0).");
++        return false;
++    }
++    constexpr auto total = std::size(pd::guards);
++    std::array<Operands, total> operands{};
++    for (std::size_t i = 0; i < total; ++i) {
++        const auto& g = pd::guards[i];
++        std::array<std::uint8_t, 6> here{};
++        if (!decode(g, operands[i]) || !memory::peek_bytes(base + g.rva, here.data(), g.size) ||
++            std::memcmp(here.data(), g.bytes, g.size) != 0) {
++            logging::log(logging::Level::warning, logging::Channel::runtime,
++                "Physics DAZ guard: this build's physics code differs (Skate.exe+0x{:x}); it is left as it is.", g.rva);
++            return false;
++        }
++    }
++    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
++    const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
++    const std::size_t bytes = 16 + total * stub_size;
++    auto* page = static_cast<std::uint8_t*>(memory::allocate_near_image(base, nt->OptionalHeader.SizeOfImage, bytes));
++    if (!page) {
++        logging::log(logging::Level::warning, logging::Channel::runtime, "Physics DAZ guard: no memory within reach of the game's code.");
++        return false;
++    }
++    auto* floor = reinterpret_cast<float*>(page);
++    for (int lane = 0; lane < 4; ++lane) floor[lane] = flt_min;
++    for (std::size_t i = 0; i < total; ++i)
++        write_stub(page + 16 + i * stub_size, operands[i], floor, base + pd::guards[i].rva + pd::guards[i].size);
++    DWORD old{};
++    if (!VirtualProtect(page, bytes, PAGE_EXECUTE_READ, &old)) return false;
++    FlushInstructionCache(GetCurrentProcess(), page, bytes);
++    std::uint32_t done{};
++    for (std::size_t i = 0; i < total; ++i) {
++        const auto& g = pd::guards[i];
++        if (patch_code_jump("physics DAZ guard", base + g.rva, std::span<const std::uint8_t>(g.bytes, g.size),
++                            reinterpret_cast<std::uintptr_t>(page + 16 + i * stub_size)) == HookOk)
++            ++done;
++    }
++    count.store(done);
++    logging::log(done == total ? logging::Level::info : logging::Level::warning, logging::Channel::runtime,
++        "Physics DAZ guard: {} of {} solver zero-guards treat denormals as zero.", done, total);
++    return done == total;
++}
++
++std::uint32_t patched() noexcept { return count.load(); }
++} // namespace dingosdk::physics_daz_guard
+\ No newline at end of file
+diff --git a/Extension/World/physics_daz_guard.h b/Extension/World/physics_daz_guard.h
+new file mode 100644
+index 0000000..d122c08
+--- /dev/null
++++ b/Extension/World/physics_daz_guard.h
+@@ -0,0 +1,16 @@
++#pragma once
++#include <cstdint>
++
++// The physics solvers divide by lengths and masses behind a guard that only holds when the CPU treats
++// denormals as zero (MXCSR DAZ), which the game turns on for its threads. An x86 emulator that does not
++// honour DAZ (FEX on ARM64: MXCSR reads 0x1f80) lets a denormal through; 1/x becomes +inf, then NaN, and a
++// body's whole state is NaN after one physics step (Engine/Game/Build/<build>/physics_daz.h). The guard
++// rewrites each of those compares so that it gives what x86 gives with DAZ on, on any CPU: a denormal
++// compares as zero. On x86 the game's results are unchanged.
++namespace dingosdk::physics_daz_guard {
++// Checks every site of this build and patches them; once. False when the build differs (nothing patched)
++// or RESKATE_DAZ_GUARD=0.
++bool install(std::uintptr_t base) noexcept;
++// How many compares were rewritten (0 until install has run).
++std::uint32_t patched() noexcept;
++}
+\ No newline at end of file
+diff --git a/Runtime/runtime_init.cpp b/Runtime/runtime_init.cpp
+index 821180d..93cb0b8 100644
+--- a/Runtime/runtime_init.cpp
++++ b/Runtime/runtime_init.cpp
+@@ -20,6 +20,7 @@
+ #include "Extension/World/texture_handle_guard.h"
+ #include "Extension/World/reference_list_guard.h"
+ #include "Extension/World/physics_wake_guard.h"
++#include "Extension/World/physics_daz_guard.h"
+ #include "Extension/World/streaming_copy_guard.h"
+ #include "Extension/World/stack_check_report.h"
+ #include "Extension/World/world_entities.h"
+@@ -405,6 +406,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
+         (void)dingosdk::texture_handle_guard::install(r.base);
+         (void)dingosdk::reference_list_guard::install(r.base);
+         (void)dingosdk::physics_wake_guard::install(r.base);
++        (void)dingosdk::physics_daz_guard::install(r.base);
+         (void)dingosdk::streaming_copy_guard::install(r.base);
+         (void)dingosdk::load_error_guard::install(r.base);
+         (void)dingosdk::texture_handle_limit::install(r.base);
+diff --git a/cmake/Runtime.cmake b/cmake/Runtime.cmake
+index a27b91c..51c9c7a 100644
+--- a/cmake/Runtime.cmake
++++ b/cmake/Runtime.cmake
+@@ -103,6 +103,7 @@ add_library(dingosdk_runtime SHARED
+     Extension/World/texture_handle_guard.cpp
+     Extension/World/reference_list_guard.cpp
+     Extension/World/physics_wake_guard.cpp
++    Extension/World/physics_daz_guard.cpp
+     Extension/World/streaming_copy_guard.cpp
+     Extension/Settings/replay_drafts.cpp
+     Extension/UI/ui_pointer_skip.cpp

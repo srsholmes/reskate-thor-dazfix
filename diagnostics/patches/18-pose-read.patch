@@ -1,0 +1,78 @@
+From 939b523f13b47b7ee0f3e211716c21ea2a57e0d4 Mon Sep 17 00:00:00 2001
+From: ReSkate DAZ guard investigation <noreply@example.invalid>
+Date: Sun, 15 Nov 2026 16:52:12 +0000
+Subject: [PATCH] diag v18: passive log of abnormal physics pose reads at
+ 0x25d6720
+
+---
+ Extension/Skater/skater_observer.cpp | 40 ++++++++++++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/Extension/Skater/skater_observer.cpp b/Extension/Skater/skater_observer.cpp
+index 74472a1..f681b38 100644
+--- a/Extension/Skater/skater_observer.cpp
++++ b/Extension/Skater/skater_observer.cpp
+@@ -4,6 +4,9 @@
+ #include "Engine/Game/Build/addresses.h"
+ #include "Engine/Game/Build/20260929/skater_observer.h"
+ #include <atomic>
++#include <intrin.h>
++#include <cstring>
++#include <cmath>
+ #include <cstdio>
+ #include <string>
+ 
+@@ -117,6 +120,37 @@ void bind_hook(std::uintptr_t player, std::uintptr_t entity) {
+         "Player binding {} returned after {}ms (player=0x{:x}, entity=0x{:x}).", id, elapsed, player, entity);
+     SetLastError(native_error);
+ }
++// Diagnostic v18: the physics engine's pose read Skate.exe+0x25d6720(handle*, out*) fills
++// out = {pos.xyz, ?, q.xyzw}. Passive: log only abnormal outputs (non-finite, or |q|^2 far from 1).
++using PoseRead = std::uintptr_t (*)(std::uintptr_t, std::uintptr_t, std::uintptr_t, std::uintptr_t);
++PoseRead original_pose{};
++std::atomic<std::uint64_t> pose_calls{}, pose_bad{};
++std::uintptr_t pose_rva(std::uintptr_t a) { const auto b = observer().base; return a >= b ? a - b : a; }
++std::uintptr_t pose_hook(std::uintptr_t handle, std::uintptr_t out, std::uintptr_t r8, std::uintptr_t r9) {
++    const auto from = reinterpret_cast<std::uintptr_t>(_ReturnAddress());
++    const auto result = original_pose(handle, out, r8, r9);
++    const auto n = ++pose_calls;
++    if (!out) return result;
++    const auto* f = reinterpret_cast<const float*>(out);
++    const float q2 = f[4]*f[4] + f[5]*f[5] + f[6]*f[6] + f[7]*f[7];
++    bool finite = true;
++    for (int i = 0; i < 8; ++i) if (!std::isfinite(f[i])) finite = false;
++    const bool bad = !finite || q2 < 0.5f || q2 > 2.0f;
++    if (!bad) {
++        if (n % 20000 == 0)
++            logging::log(logging::Level::warning, logging::Channel::skater, "POSEREAD calls {} bad {}", n, pose_bad.load());
++        return result;
++    }
++    const auto b = ++pose_bad;
++    if (b <= 60 || b % 500 == 0) {
++        std::uint32_t h[4]{};
++        if (handle) std::memcpy(h, reinterpret_cast<const void*>(handle), sizeof(h));
++        logging::log(logging::Level::warning, logging::Channel::skater,
++            "POSEREAD bad#{} call#{} from Skate+0x{:x} handle=0x{:x} [{:08x} {:08x} {:08x} {:08x}] pos=({} {} {} {}) q=({} {} {} {}) |q|2={}",
++            b, n, pose_rva(from), handle, h[0], h[1], h[2], h[3], f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7], q2);
++    }
++    return result;
++}
+ struct Hook { std::uintptr_t rva; void* detour; void* original{}; std::array<unsigned char, 24> fingerprint; };
+ bool fingerprint(std::uintptr_t address, const std::array<unsigned char, 24>& expected) noexcept {
+     std::array<unsigned char, 24> actual{};
+@@ -166,6 +200,12 @@ bool start_skater_observer(std::uintptr_t base) noexcept {
+             return false;
+         }
+         o.active.store(true);
++        {
++            void* target = reinterpret_cast<void*>(base + 0x25d6720);
++            const bool ok = hook_prepare(target, reinterpret_cast<void*>(&pose_hook), reinterpret_cast<void**>(&original_pose)) == HookOk
++                && hook_enable(target) == HookOk;
++            logging::write(logging::Level::warning, logging::Channel::skater, ok ? "POSEREAD hook on Skate.exe+0x25d6720" : "POSEREAD hook FAILED");
++        }
+         logging::write(logging::Level::info, logging::Channel::player,
+             "Native player lifecycle logging enabled: skater component factory, creation and player binding.");
+         return true;
+-- 
+2.56.0
+

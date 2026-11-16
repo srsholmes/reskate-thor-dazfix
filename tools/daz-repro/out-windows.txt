@@ -1,0 +1,7 @@
+﻿start                              MXCSR=0x1fba  1e-39*1=0x000ae398 (1e-39)  (1e-39>0)=true  1e-20*1e-20=0x000116c2 (9.99995e-41)  guard=inf
+_controlfp_s(_DN_FLUSH, _MCW_DN) -> err=0 control=0x0108001f
+after _controlfp_s(_DN_FLUSH)      MXCSR=0x9ff4  1e-39*1=0x00000000 (0)  (1e-39>0)=false  1e-20*1e-20=0x00000000 (0)  guard=0
+_controlfp_s(0x0108001f, 0x0308031f) -> err=0 control=0x0108001f
+after skate.'s _controlfp_s        MXCSR=0x9ff4  1e-39*1=0x00000000 (0)  (1e-39>0)=false  1e-20*1e-20=0x00000000 (0)  guard=0
+after ldmxcsr 0x1f80               MXCSR=0x1fba  1e-39*1=0x000ae398 (1e-39)  (1e-39>0)=true  1e-20*1e-20=0x000116c2 (9.99995e-41)  guard=inf
+after ldmxcsr 0x9fc0 (FTZ+DAZ)     MXCSR=0x9ff4  1e-39*1=0x00000000 (0)  (1e-39>0)=false  1e-20*1e-20=0x00000000 (0)  guard=0

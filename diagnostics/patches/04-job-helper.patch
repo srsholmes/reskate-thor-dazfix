@@ -1,0 +1,55 @@
+From 709568453e4ae12e1cc2d04f29773093378e3056 Mon Sep 17 00:00:00 2001
+From: ReSkate DAZ guard investigation <noreply@example.invalid>
+Date: Sun, 15 Nov 2026 13:00:04 +0000
+Subject: [PATCH] diag v4: log the job helper's F4/F8 results and NaNs
+
+---
+ Extension/Skater/skater_observer.cpp | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/Extension/Skater/skater_observer.cpp b/Extension/Skater/skater_observer.cpp
+index adedb20..e1c8497 100644
+--- a/Extension/Skater/skater_observer.cpp
++++ b/Extension/Skater/skater_observer.cpp
+@@ -153,6 +153,25 @@ template<int N> struct Watched {
+         return result;
+     }
+ };
++// Diagnostic v4: the per-entity job helper Skate.exe+0x4aac8c0(entity, float a, float b, int id, jobs*)
++// writes a min/max reduction to [entity+F4h] and an exact-match flag to [entity+F8h]. Log both.
++using JobHelper = void (*)(std::uintptr_t, float, float, std::int32_t, std::uintptr_t);
++JobHelper original_helper{};
++std::atomic<std::uint64_t> helper_calls{}, helper_nan{};
++void helper_hook(std::uintptr_t entity, float a, float b, std::int32_t id, std::uintptr_t jobs) {
++    const float f4_before = *reinterpret_cast<float*>(entity + 0xf4);
++    original_helper(entity, a, b, id, jobs);
++    const auto n = ++helper_calls;
++    const float f4 = *reinterpret_cast<float*>(entity + 0xf4);
++    const auto f8 = *reinterpret_cast<std::uint8_t*>(entity + 0xf8);
++    const auto fc = *reinterpret_cast<std::uint8_t*>(entity + 0xfc);
++    const bool nan = f4 != f4 || a != a || b != b;
++    if (nan) ++helper_nan;
++    if (n <= 40 || n % 300 == 0 || (nan && helper_nan.load() <= 20))
++        logging::log(logging::Level::warning, logging::Channel::skater,
++            "HELPER n={} entity=0x{:x} id={} a={} b={} F4 {}->{} F8={} FC=0x{:02x}{}",
++            n, entity, id, a, b, f4_before, f4, f8, fc, nan ? " NAN" : "");
++}
+ void request_pass_hook(std::uintptr_t obj, std::uintptr_t rdx, std::uintptr_t r8, std::uintptr_t r9) {
+     in_pass = true;
+     original_pass(obj, rdx, r8, r9);
+@@ -227,6 +246,12 @@ bool start_skater_observer(std::uintptr_t base) noexcept {
+                 logging::write(logging::Level::warning, logging::Channel::skater, "REQUESTER diag hook on Skate.exe+0x2b62410 enabled.");
+                 watch<0>(base, 0x4aad0d0);
+                 watch<1>(base, 0x4aac2c0);
++                {
++                    void* helper = reinterpret_cast<void*>(base + 0x4aac8c0);
++                    const bool ok = hook_prepare(helper, reinterpret_cast<void*>(&helper_hook), reinterpret_cast<void**>(&original_helper)) == HookOk
++                        && hook_enable(helper) == HookOk;
++                    logging::write(logging::Level::warning, logging::Channel::skater, ok ? "HELPER hook on Skate.exe+0x4aac8c0" : "HELPER hook FAILED");
++                }
+                 char flag[8]{};
+                 if (GetEnvironmentVariableA("RESKATE_DIAG_WATCH_SHARED", flag, sizeof(flag)) && flag[0] == '1') watch<2>(base, 0x1fe380);
+             }
+-- 
+2.56.0
+
