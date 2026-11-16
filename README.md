@@ -24,7 +24,7 @@ source patch. Install instructions are in the release notes and below.
 | [Releases](https://github.com/srsholmes/reskate-thor-dazfix/releases) | The patched `ReSkate.dll` builds and tester zips (not in the git tree) |
 | `patch/0001-physics-daz-guard.patch` | Source of the fix; applies cleanly to ReSkate tags `20261114` and `20261116` |
 | `docs/investigation.md` | Full write-up: symptom, causal chain, root cause in FEX/Wine, what was ruled out |
-| `docs/thor-setup.md` | The Thor launch setup (speed settings) that goes with the fix |
+| `docs/thor-setup.md` | **Thor setup guide:** launch options, in-game settings for full speed, troubleshooting |
 | `docs/daz-guard-sites.txt` | The 61 patched instructions in Skate.exe |
 | `tools/daz-repro/` | Small x64 test of MXCSR DAZ/FTZ behaviour (Windows reference output included) |
 
@@ -88,10 +88,14 @@ patch restores the x86 behaviour.
 
 Nothing has been reported upstream yet.
 
-## Separate issue: speed
-Half-speed / slow motion on the Thor is the CPU cost of translating skate.'s fixed 60 Hz simulation. It's unrelated
-to this bug. See `docs/thor-setup.md` for the settings that give the best speed (FEX TSO off, big-core pinning,
-Performance profile).
+## Thor setup guide (speed + settings)
+Slow motion on the Thor is a separate issue from this bug: skate.'s fixed-rate physics can't keep up with the CPU
+cost of translating x86 code, so the game runs slower than real time. **[docs/thor-setup.md](docs/thor-setup.md)** is
+the full guide:
+- the launch options and environment variables (which are needed and which are optional)
+- **Simulation rate 30 Hz**, the setting that gets the game to real speed
+- the graphics settings that look good and still hold 30 fps
+- the Performance power profile, and troubleshooting
 
 ## Licence
 GPL-3.0 (see `LICENSE`), the same as ReSkate. ReSkate is GPL-3.0. The patched DLLs are built from upstream ReSkate tags `20261114`/`20261116` plus `patch/0001-physics-daz-guard.patch`
